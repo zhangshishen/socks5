@@ -11,16 +11,21 @@ type SocksSession struct {
 	serverAddr *net.TCPAddr
 }
 
-func (s *SocksSession) start() {
+func (s *SocksSession) start(client, server *SocksConnection) {
+
+	s.clientConn = client
 
 	if s.clientConn.state != running {
 		debug.output("[socks]client connection is offline ")
 		return
 	}
 
-	if s.serverConn.state != pending {
-		debug.output("[socks]server is already running")
+	s.serverConn = server
+
+	if s.serverConn.state != running {
+		debug.output("[socks]server connection is offline ")
 		return
 	}
+	//TODO
 
 }

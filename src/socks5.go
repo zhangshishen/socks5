@@ -19,20 +19,20 @@ func (s *SocksProxy) run(host string) {
 	}
 
 	for {
-		conn, err := l.AcceptTCP()
+
+		client := &SocksConnection{}
+		client.init()
+		err := client.connect("", l)
+		//client, err := handshake(conn)
 
 		if err != nil {
-			debug.output("[socks] socks5 accept failed\n")
+			debug.output("[socks] listen failed\n")
 			return
 		}
+		client.connect()
+		session := new(SocksSession)
+		session.start()
 
-		session, err := handshake(conn)
-
-		if err != nil {
-			debug.output("[socks] socks5 handshake failed\n")
-			return
-		}
-
-		go session.start()
+		go session.start(client)
 	}
 }

@@ -32,8 +32,9 @@ type Reply struct {
 	bnd_port [2]byte
 }
 
-func handshake(conn *net.TCPConn) (SocksSession, error) {
-	res := SocksSession{}
+func handshake(conn *net.TCPConn) (*SocksConnection, error) {
+	res := new(SocksConnection)
 
+	res.init(conn)
 	return res, nil
 }
