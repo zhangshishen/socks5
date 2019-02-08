@@ -28,10 +28,10 @@ func (s *SocksProxy) runRelay(host string) {
 
 		client := &SocksConnection{}
 		client.init("client")
-		defer client.close()
 
 		err := client.listen(l)
 		if err != nil {
+
 			debug.output("[socks] listen failed\n")
 			return
 		}
@@ -41,11 +41,11 @@ func (s *SocksProxy) runRelay(host string) {
 
 		if e != nil {
 			debug.output("[socks] handshake error\n")
+			return
 		}
 
 		server := &SocksConnection{}
 		server.init("server")
-		defer server.close()
 
 		err = server.connect(RELAYSERVER)
 		if err != nil {
@@ -74,8 +74,6 @@ func (s *SocksProxy) runRelay(host string) {
 			return
 		}
 		//after handshake, run mainloop(async)
-		client.run()
-		server.run()
 
 		session := &SocksSession{}
 		session.init("")
@@ -169,8 +167,6 @@ func (s *SocksProxy) Run(host string) {
 		}
 		//after handshake, run mainloop(async)
 		debug.out("[socks] start main loop\n")
-		client.run()
-		server.run()
 
 		session := &SocksSession{}
 		session.init("")

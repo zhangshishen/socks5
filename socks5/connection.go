@@ -70,7 +70,7 @@ func (s *SocksConnection) close() {
 	}
 
 	close(s.ctx)
-
+	s.tcpConn.Close()
 	s.state = dead
 
 }
@@ -116,59 +116,58 @@ func (s *SocksConnection) listen(l *net.TCPListener) error {
 	return nil
 }
 
-func (s *SocksConnection) run() {
+func (s *SocksConnection) run(inQueue, outQueue chan []byte) {
 
-	go func(c *net.TCPConn, s *SocksConnection) {
+	go func(inQueue chan []byte, s *SocksConnection) {
 
 		for {
-			n, err := c.Read(s.inBuffer)
 
-			debug.out("[socks] %s read %d byte \n", s.id, n)
-
-			s.downstream += uint64(n)
+			//for buf := range session.inQueue {
+			n, err := s.tcpConn.Read(s.inBuffer)
 
 			if err != nil {
 				debug.out("[socks] connection closed \n")
-				s.close()
+				close(inQueue)
 				return
 			}
-			tmp := make([]byte, n)
-			copy(tmp, s.inBuffer)
 
-			select {
-			case s.inQueue <- tmp:
-			case <-s.ctx:
-				return
+			s.downstream += uint64(n)
+			if n != 0 {
+				debug.out("[socks] %s read %d bytes \n", s.id, n)
+				tmp := make([]byte, n)
+				copy(tmp, s.inBuffer)
+				inQueue <- tmp
 			}
+
 		}
-	}(s.tcpConn, s)
+	}(inQueue, s)
 
 	//write routine
-	go func(c *net.TCPConn, s *SocksConnection) {
+	go func(outQueue chan []byte, s *SocksConnection) {
+		isClosed := false
 
-		for {
+		for out := range outQueue {
 
-			tmp := make([]byte, 0)
-
-			select {
-			case tmp = <-s.outQueue:
-			case <-s.ctx:
-				return
+			if isClosed {
+				continue
 			}
-
-			n, err := c.Write(tmp)
+			n, err := s.tcpConn.Write(out)
+			debug.out("[socks] %s write %d bytes \n", s.id, n)
 			s.upstream += uint64(n)
-			debug.out("[socks] %s write %d byte \n", s.id, n)
-			if err != nil {
-				s.close()
-				return
-			}
 
-			if n != len(tmp) {
+			//debug.out("[socks] %s write %d byte \n", s.id, n)
+
+			if err != nil {
+				s.tcpConn.Close()
+				isClosed = true
+			}
+			if n != len(out) {
 				debug.output("fatal error, send size less than buffer size")
 			}
 		}
-	}(s.tcpConn, s)
+		s.tcpConn.Close()
+
+	}(outQueue, s)
 
 }
 
