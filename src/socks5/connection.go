@@ -28,6 +28,7 @@ const (
 
 type SocksConnection struct {
 	mu sync.Mutex
+	wc sync.WaitGroup
 
 	id      string
 	tcpConn *net.TCPConn
@@ -93,6 +94,7 @@ func (s *SocksConnection) connect(addr string) error {
 		debug.output("connect to addr failed")
 		return err
 	}
+
 	debug.out("[socks] connect %s success\n", addr)
 	s.tcpConn = c.(*net.TCPConn)
 
@@ -111,7 +113,7 @@ func (s *SocksConnection) listen(l *net.TCPListener) error {
 		debug.output("connect to addr failed")
 		return err
 	}
-	debug.out("[socks] listen success\n")
+
 	s.state = running
 	return nil
 }
@@ -119,43 +121,39 @@ func (s *SocksConnection) listen(l *net.TCPListener) error {
 func (s *SocksConnection) run(inQueue, outQueue chan []byte) {
 
 	go func(inQueue chan []byte, s *SocksConnection) {
-
+		defer s.wc.Done()
 		for {
 
-			//for buf := range session.inQueue {
 			n, err := s.tcpConn.Read(s.inBuffer)
 
 			if err != nil {
-				debug.out("[socks] connection closed \n")
 				close(inQueue)
 				return
 			}
 
 			s.downstream += uint64(n)
 			if n != 0 {
-				debug.out("[socks] %s read %d bytes \n", s.id, n)
 				tmp := make([]byte, n)
 				copy(tmp, s.inBuffer)
 				inQueue <- tmp
 			}
 
 		}
+
 	}(inQueue, s)
 
 	//write routine
 	go func(outQueue chan []byte, s *SocksConnection) {
 		isClosed := false
-
+		defer s.wc.Done()
 		for out := range outQueue {
 
 			if isClosed {
 				continue
 			}
 			n, err := s.tcpConn.Write(out)
-			debug.out("[socks] %s write %d bytes \n", s.id, n)
-			s.upstream += uint64(n)
 
-			//debug.out("[socks] %s write %d byte \n", s.id, n)
+			s.upstream += uint64(n)
 
 			if err != nil {
 				s.tcpConn.Close()

@@ -56,6 +56,12 @@ func (s *SocksSession) start(client, server *SocksConnection) {
 		return
 	}
 	//read from client and send to server
+
+	client.wc.Add(2)
+	server.wc.Add(2)
 	client.run(s.inQueue, s.outQueue)
 	server.run(s.outQueue, s.inQueue)
+
+	client.wc.Wait()
+	server.wc.Wait()
 }

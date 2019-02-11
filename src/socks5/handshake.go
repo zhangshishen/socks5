@@ -3,7 +3,6 @@ package socks5
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"net"
 	"strconv"
 )
@@ -54,16 +53,20 @@ func sendHandshakeRequest(conn *net.TCPConn, req *Request) error {
 		debug.output("handshake failed, server can't connect")
 		return errors.New("handshake failed")
 	}
-
+	buf = buf[:4]
 	buf[0] = 5
 	buf[1] = req.cmd
 	buf[2] = 0
 	buf[3] = req.atyp
-	copy(buf[4:], req.dst_addr)
-	buf[4+len(req.dst_addr)] = req.dst_port[0]
-	buf[4+len(req.dst_addr)+1] = req.dst_port[1]
 
-	n, err = conn.Write(buf[0 : 4+len(req.dst_addr)+2])
+	if req.atyp == 3 {
+		buf = append(buf, byte(len(req.dst_addr)))
+	}
+
+	buf = append(buf, req.dst_addr...)
+	buf = append(buf, req.dst_port[0])
+	buf = append(buf, req.dst_port[1])
+	n, err = conn.Write(buf)
 
 	if err != nil {
 		debug.output("handshake failed, server can't connect")
@@ -75,14 +78,42 @@ func sendHandshakeRequest(conn *net.TCPConn, req *Request) error {
 }
 
 func recvHandshakeRequest(conn *net.TCPConn) (*Request, error) {
+
 	req := &Request{}
 
 	buf := make([]byte, 1024)
 
-	n, err := conn.Read(buf)
+	n, err := conn.Read(buf[0:2])
 
-	if n < 2 || err != nil {
+	if n != 2 || err != nil {
+		if err == nil {
+			debug.out("version handshake size is not 2\n")
+		} else {
+			debug.out("handshake failed: connection been closed 1\n")
+			debug.out(err.Error())
+		}
 		return req, errors.New("handshake failed")
+	}
+
+	debug.out("%d", buf[0:2])
+
+	n, err = conn.Read(buf[0:1])
+
+	if n != 1 || err != nil {
+		debug.out("version handshake size failed\n")
+		return req, errors.New("handshake failed")
+	}
+	debug.out("%d", buf[0])
+
+	size := buf[0]
+	if size != 0 {
+		n, err = conn.Read(buf[0:size])
+
+		if n != int(size) || err != nil {
+			debug.out("receive size failed\n")
+			return req, errors.New("handshake failed")
+		}
+		debug.out("%d\n", buf[0:n])
 	}
 
 	buf[0] = 5
@@ -91,30 +122,61 @@ func recvHandshakeRequest(conn *net.TCPConn) (*Request, error) {
 	n, err = conn.Write(buf[0:2])
 
 	if n != 2 || err != nil {
+		if err == nil {
+			debug.out("handshake reply size is not 2\n")
+		} else {
+			debug.out("handshake failed: connection been closed 2\n")
+			debug.out(err.Error())
+		}
 		return req, errors.New("handshake failed")
 	}
 
-	n, err = conn.Read(buf)
+	n, err = conn.Read(buf[0:4])
 
-	outBuf := buf[0:n]
-	fmt.Printf("receive package %d\n", outBuf)
-	req.version = outBuf[0]
-	req.cmd = outBuf[1]
-	req.atyp = outBuf[3]
+	if err != nil || n != 4 {
+		if err == nil {
+			debug.out("handshake header size is not 5\n")
+		} else {
+			debug.out("handshake failed: connection been closed 3\n")
+			debug.out(err.Error())
+		}
+		return req, errors.New("handshake failed")
+	}
+
+	req.version = buf[0]
+	req.cmd = buf[1]
+	req.atyp = buf[3]
+
+	var length byte
 
 	if req.atyp == 1 {
-		req.dst_addr = append(req.dst_addr, outBuf[4:8]...)
-		copy(req.dst_port[:], outBuf[8:10])
+		length = 4
 	} else if req.atyp == 3 {
-		length := outBuf[4]
-		req.dst_addr = append(req.dst_addr, outBuf[5:5+length]...)
-		copy(req.dst_port[:], outBuf[5+length:7+length])
-		//fmt.Printf("port 1 = %d\n", req.dst_port[0])
-		//fmt.Printf("port 2 = %d\n", req.dst_port[1])
+		n, err = conn.Read(buf[0:1])
+		if err != nil {
+			debug.out("read length failed\n")
+			return req, errors.New("")
+		}
+		length = buf[0]
 	} else if req.atyp == 4 {
-		req.dst_addr = append(req.dst_addr, outBuf[4:20]...)
-		copy(req.dst_port[:], outBuf[20:22])
+		debug.out("ipv6 not supported")
+		return req, errors.New("")
 	}
+
+	n, err = conn.Read(buf[0 : length+2])
+
+	if err != nil || n != int(length+2) {
+		if err == nil {
+			debug.out("handshake header size wrong\n")
+		} else {
+			debug.out("handshake failed: connection been closed failed\n")
+			debug.out(err.Error())
+		}
+		return req, errors.New("handshake failed")
+	}
+
+	req.dst_addr = append(req.dst_addr, buf[:length]...)
+	copy(req.dst_port[:], buf[length:length+2])
 
 	return req, nil
 }
@@ -150,7 +212,7 @@ func recvHandshakeReply(conn *net.TCPConn) (*Reply, error) {
 	buf = buf[0:n]
 
 	if err != nil {
-		debug.output("recv handshake reply failed")
+		debug.output("recv handshake reply failed\n")
 		return rep, errors.New("handshake failed")
 	}
 
